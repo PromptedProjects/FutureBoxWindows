@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { validateSession } from '../services/auth.service.js';
 import { wsManager } from '../ws/ws-manager.js';
-import { createWSMessage, type WSMessage, type ChatSendPayload } from '../ws/ws-protocol.js';
+import { createWSMessage, type WSMessage, type ChatSendPayload, type ActionDecisionPayload } from '../ws/ws-protocol.js';
 import { handleChatSend, handleChatCancel } from '../ws/handlers/chat.handler.js';
+import { handleApprove, handleDeny } from '../services/action.service.js';
 
 export async function wsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws', { websocket: true }, (socket, request) => {
@@ -41,6 +42,22 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
         case 'chat.cancel':
           handleChatCancel(msg.id);
           break;
+        case 'action.approve': {
+          const ap = msg.payload as ActionDecisionPayload;
+          const approved = handleApprove(ap.action_id);
+          socket.send(JSON.stringify(createWSMessage('notification.info', msg.id, {
+            result: approved ? 'approved' : 'not_found',
+          })));
+          break;
+        }
+        case 'action.deny': {
+          const dp = msg.payload as ActionDecisionPayload;
+          const denied = handleDeny(dp.action_id);
+          socket.send(JSON.stringify(createWSMessage('notification.info', msg.id, {
+            result: denied ? 'denied' : 'not_found',
+          })));
+          break;
+        }
         case 'ping':
           socket.send(JSON.stringify(createWSMessage('pong', msg.id, {})));
           break;

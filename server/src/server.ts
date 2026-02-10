@@ -8,6 +8,7 @@ import { modelRoutes } from './routes/models.js';
 import { chatRoutes } from './routes/chat.js';
 import { historyRoutes } from './routes/history.js';
 import { wsRoutes } from './routes/ws.js';
+import { actionRoutes } from './routes/actions.js';
 import { requireAuth } from './middleware/auth.middleware.js';
 
 export async function buildServer(config: Config, logger: Logger) {
@@ -52,6 +53,9 @@ export async function buildServer(config: Config, logger: Logger) {
 
     // History routes
     await protectedScope.register(historyRoutes);
+
+    // Action + trust rule routes
+    await protectedScope.register(actionRoutes);
   });
 
   return app;

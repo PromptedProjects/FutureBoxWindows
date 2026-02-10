@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import type { Config } from './config.js';
 import type { Logger } from './utils/logger.js';
@@ -11,13 +12,33 @@ import { wsRoutes } from './routes/ws.js';
 import { actionRoutes } from './routes/actions.js';
 import { configRoutes } from './routes/config.js';
 import { requireAuth } from './middleware/auth.middleware.js';
+import { errorHandler } from './middleware/error-handler.middleware.js';
 import { getSystemStatus } from './services/status.service.js';
 
-export async function buildServer(config: Config, logger: Logger) {
-  const app = Fastify({ loggerInstance: logger });
+export interface ServerOptions {
+  https?: { key: string; cert: string };
+}
+
+export async function buildServer(config: Config, logger: Logger, opts?: ServerOptions) {
+  const fastifyOpts: Record<string, unknown> = { loggerInstance: logger };
+
+  if (opts?.https?.key && opts?.https?.cert) {
+    fastifyOpts.https = { key: opts.https.key, cert: opts.https.cert };
+  }
+
+  const app = Fastify(fastifyOpts);
+
+  // Global error handler
+  app.setErrorHandler(errorHandler);
 
   await app.register(cors, { origin: true });
   await app.register(websocket);
+
+  // Rate limiting
+  await app.register(rateLimit, {
+    max: config.RATE_LIMIT_MAX,
+    timeWindow: config.RATE_LIMIT_WINDOW_MS,
+  });
 
   // --- Public routes (no auth) ---
 

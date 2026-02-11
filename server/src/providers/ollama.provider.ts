@@ -5,6 +5,7 @@ import {
   type VisionProvider,
   type ChatMessage,
   type ChatResponse,
+  type ChatOptions,
   type ModelInfo,
 } from './provider.interface.js';
 
@@ -45,7 +46,7 @@ export class OllamaProvider implements LLMProvider, VisionProvider {
     });
   }
 
-  async chat(model: string, messages: ChatMessage[]): Promise<ChatResponse> {
+  async chat(model: string, messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
     const response = await this.client.chat({
       model,
       messages: messages.map((m) => ({
@@ -63,7 +64,7 @@ export class OllamaProvider implements LLMProvider, VisionProvider {
     };
   }
 
-  async *chatStream(model: string, messages: ChatMessage[]): AsyncGenerator<string, ChatResponse> {
+  async *chatStream(model: string, messages: ChatMessage[], _options?: ChatOptions): AsyncGenerator<string, ChatResponse> {
     const stream = await this.client.chat({
       model,
       messages: messages.map((m) => ({

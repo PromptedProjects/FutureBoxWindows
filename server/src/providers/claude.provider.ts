@@ -3,7 +3,10 @@ import {
   type LLMProvider,
   type ChatMessage,
   type ChatResponse,
+  type ChatOptions,
   type ModelInfo,
+  type ToolCall,
+  type ToolDefinition,
 } from './provider.interface.js';
 
 export class ClaudeProvider implements LLMProvider {
@@ -27,9 +30,79 @@ export class ClaudeProvider implements LLMProvider {
     ];
   }
 
-  async chat(model: string, messages: ChatMessage[]): Promise<ChatResponse> {
+  /** Convert OpenAI-format tool defs to Claude format */
+  private formatTools(tools: ToolDefinition[]): any[] {
+    return tools.map((t) => ({
+      name: t.function.name,
+      description: t.function.description,
+      input_schema: t.function.parameters,
+    }));
+  }
+
+  /** Format messages for Claude API, handling tool_calls and tool results */
+  private formatMessages(messages: ChatMessage[]): any[] {
+    const result: any[] = [];
+
+    for (const m of messages) {
+      if (m.role === 'system') continue; // handled separately
+
+      // Assistant message with tool_calls → content array with text + tool_use blocks
+      if (m.role === 'assistant' && m.tool_calls?.length) {
+        const content: any[] = [];
+        if (m.content) {
+          content.push({ type: 'text', text: m.content });
+        }
+        for (const tc of m.tool_calls) {
+          let input: any = {};
+          try { input = JSON.parse(tc.function.arguments); } catch { /* empty */ }
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.function.name,
+            input,
+          });
+        }
+        result.push({ role: 'assistant', content });
+        continue;
+      }
+
+      // Tool result → user message with tool_result content block
+      if (m.role === 'tool') {
+        // Claude expects tool results as user messages with content array
+        // Check if previous message is a user message with tool_result — merge into it
+        const prev = result[result.length - 1];
+        const block = {
+          type: 'tool_result',
+          tool_use_id: m.tool_call_id,
+          content: m.content,
+        };
+        if (prev?.role === 'user' && Array.isArray(prev.content) && prev.content[0]?.type === 'tool_result') {
+          prev.content.push(block);
+        } else {
+          result.push({ role: 'user', content: [block] });
+        }
+        continue;
+      }
+
+      // Regular message
+      result.push({ role: m.role, content: m.content });
+    }
+
+    return result;
+  }
+
+  async chat(model: string, messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
     const systemMsg = messages.find((m) => m.role === 'system');
-    const chatMsgs = messages.filter((m) => m.role !== 'system');
+
+    const body: any = {
+      model,
+      max_tokens: 4096,
+      system: systemMsg?.content,
+      messages: this.formatMessages(messages),
+    };
+    if (options?.tools?.length) {
+      body.tools = this.formatTools(options.tools);
+    }
 
     const response = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
@@ -38,12 +111,7 @@ export class ClaudeProvider implements LLMProvider {
         'x-api-key': this.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: systemMsg?.content,
-        messages: chatMsgs.map((m) => ({ role: m.role, content: m.content })),
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -52,15 +120,47 @@ export class ClaudeProvider implements LLMProvider {
     }
 
     const data = await response.json() as any;
-    const content = data.content?.[0]?.text ?? '';
     const tokensUsed = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
 
-    return { content, model, tokens_used: tokensUsed };
+    // Extract text and tool_use blocks
+    let content = '';
+    const toolCalls: ToolCall[] = [];
+
+    for (const block of data.content ?? []) {
+      if (block.type === 'text') {
+        content += block.text;
+      } else if (block.type === 'tool_use') {
+        toolCalls.push({
+          id: block.id,
+          type: 'function',
+          function: {
+            name: block.name,
+            arguments: JSON.stringify(block.input),
+          },
+        });
+      }
+    }
+
+    const result: ChatResponse = { content, model, tokens_used: tokensUsed };
+    if (toolCalls.length > 0) {
+      result.tool_calls = toolCalls;
+    }
+    return result;
   }
 
-  async *chatStream(model: string, messages: ChatMessage[]): AsyncGenerator<string, ChatResponse> {
+  async *chatStream(model: string, messages: ChatMessage[], options?: ChatOptions): AsyncGenerator<string, ChatResponse> {
     const systemMsg = messages.find((m) => m.role === 'system');
-    const chatMsgs = messages.filter((m) => m.role !== 'system');
+
+    const body: any = {
+      model,
+      max_tokens: 4096,
+      stream: true,
+      system: systemMsg?.content,
+      messages: this.formatMessages(messages),
+    };
+    if (options?.tools?.length) {
+      body.tools = this.formatTools(options.tools);
+    }
 
     const response = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
@@ -69,13 +169,7 @@ export class ClaudeProvider implements LLMProvider {
         'x-api-key': this.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        stream: true,
-        system: systemMsg?.content,
-        messages: chatMsgs.map((m) => ({ role: m.role, content: m.content })),
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -85,6 +179,14 @@ export class ClaudeProvider implements LLMProvider {
 
     let fullContent = '';
     let tokensUsed = 0;
+    const toolCalls: ToolCall[] = [];
+
+    // Track current content block for tool_use streaming
+    let currentBlockType: 'text' | 'tool_use' | null = null;
+    let currentToolId = '';
+    let currentToolName = '';
+    let currentToolArgs = '';
+
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -104,9 +206,36 @@ export class ClaudeProvider implements LLMProvider {
 
         try {
           const event = JSON.parse(json);
-          if (event.type === 'content_block_delta' && event.delta?.text) {
-            fullContent += event.delta.text;
-            yield event.delta.text;
+
+          if (event.type === 'content_block_start') {
+            const block = event.content_block;
+            if (block.type === 'text') {
+              currentBlockType = 'text';
+            } else if (block.type === 'tool_use') {
+              currentBlockType = 'tool_use';
+              currentToolId = block.id;
+              currentToolName = block.name;
+              currentToolArgs = '';
+            }
+          } else if (event.type === 'content_block_delta') {
+            if (currentBlockType === 'text' && event.delta?.text) {
+              fullContent += event.delta.text;
+              yield event.delta.text;
+            } else if (currentBlockType === 'tool_use' && event.delta?.partial_json) {
+              currentToolArgs += event.delta.partial_json;
+            }
+          } else if (event.type === 'content_block_stop') {
+            if (currentBlockType === 'tool_use') {
+              toolCalls.push({
+                id: currentToolId,
+                type: 'function',
+                function: {
+                  name: currentToolName,
+                  arguments: currentToolArgs,
+                },
+              });
+            }
+            currentBlockType = null;
           } else if (event.type === 'message_delta' && event.usage) {
             tokensUsed = (event.usage.input_tokens ?? 0) + (event.usage.output_tokens ?? 0);
           }
@@ -116,6 +245,10 @@ export class ClaudeProvider implements LLMProvider {
       }
     }
 
-    return { content: fullContent, model, tokens_used: tokensUsed };
+    const result: ChatResponse = { content: fullContent, model, tokens_used: tokensUsed };
+    if (toolCalls.length > 0) {
+      result.tool_calls = toolCalls;
+    }
+    return result;
   }
 }

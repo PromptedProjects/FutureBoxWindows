@@ -90,16 +90,16 @@ export default function SettingsScreen() {
     return <ModelsScreen onBack={() => setSubScreen(null)} />;
   }
   if (subScreen === 'browser') {
-    return <BrowserScreen />;
+    return <BrowserScreen onBack={() => setSubScreen(null)} />;
   }
   if (subScreen === 'system') {
-    return <SystemScreen />;
+    return <SystemScreen onBack={() => setSubScreen(null)} />;
   }
   if (subScreen === 'scheduler') {
-    return <SchedulerScreen />;
+    return <SchedulerScreen onBack={() => setSubScreen(null)} />;
   }
   if (subScreen === 'skills') {
-    return <SkillsScreen />;
+    return <SkillsScreen onBack={() => setSubScreen(null)} />;
   }
 
   const configKeys = Object.keys(config).sort();

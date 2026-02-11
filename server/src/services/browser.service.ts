@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { exec } from 'node:child_process';
 import type { Browser, Page } from 'puppeteer-core';
 
 let browser: Browser | null = null;
@@ -15,11 +17,15 @@ function findBrowserPath(): string {
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   ];
-  const fs = require('node:fs') as typeof import('node:fs');
   for (const p of paths) {
-    if (fs.existsSync(p)) return p;
+    if (existsSync(p)) return p;
   }
   throw new Error('No Chrome or Edge installation found');
+}
+
+/** Open a URL in the system's default browser */
+export function openInDefaultBrowser(url: string): void {
+  exec(`start "" "${url}"`, { timeout: 5000 });
 }
 
 /** Connect to or launch a browser instance */

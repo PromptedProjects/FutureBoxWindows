@@ -27,7 +27,7 @@ import type { ScheduledTask, Webhook } from '../types/models';
 
 type SubTab = 'tasks' | 'webhooks';
 
-export default function SchedulerScreen() {
+export default function SchedulerScreen({ onBack }: { onBack?: () => void }) {
   const [subTab, setSubTab] = useState<SubTab>('tasks');
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -103,7 +103,13 @@ export default function SchedulerScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.screen}>
         <View style={styles.header}>
+          {onBack && (
+            <Pressable onPress={onBack} style={styles.backBtn}>
+              <Feather name="arrow-left" size={20} color={colors.text} />
+            </Pressable>
+          )}
           <Text style={styles.headerTitle}>Automation</Text>
+          {onBack && <View style={{ width: 36 }} />}
         </View>
 
         <View style={styles.tabs}>
@@ -214,12 +220,15 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 32 },
   header: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: '600', textAlign: 'center' },
+  backBtn: { width: 36, alignItems: 'flex-start' },
+  headerTitle: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '600', textAlign: 'center' },
   tabs: {
     flexDirection: 'row',
     borderBottomWidth: 1,

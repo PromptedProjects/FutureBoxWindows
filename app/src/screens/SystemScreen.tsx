@@ -27,7 +27,7 @@ import {
 import { colors } from '../theme/tokens';
 import type { NetworkInterface } from '../types/models';
 
-export default function SystemScreen() {
+export default function SystemScreen({ onBack }: { onBack?: () => void }) {
   const [volumeLevel, setVolumeLevel] = useState<number | null>(null);
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([]);
   const [publicIp, setPublicIp] = useState<string>('');
@@ -95,7 +95,13 @@ export default function SystemScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.screen}>
         <View style={styles.header}>
+          {onBack && (
+            <Pressable onPress={onBack} style={styles.backBtn}>
+              <Feather name="arrow-left" size={20} color={colors.text} />
+            </Pressable>
+          )}
           <Text style={styles.headerTitle}>System</Text>
+          {onBack && <View style={{ width: 36 }} />}
         </View>
 
         <ScrollView
@@ -178,12 +184,16 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  backBtn: { width: 36, alignItems: 'flex-start' },
   headerTitle: {
+    flex: 1,
     color: colors.text,
     fontSize: 17,
     fontWeight: '600',

@@ -20,11 +20,12 @@ import {
   closeBrowserTab,
   navigateBrowserTab,
   screenshotBrowserTab,
+  openInDesktopBrowser,
 } from '../services/api';
 import { colors } from '../theme/tokens';
 import type { TabInfo } from '../types/models';
 
-export default function BrowserScreen() {
+export default function BrowserScreen({ onBack }: { onBack?: () => void }) {
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,11 +52,10 @@ export default function BrowserScreen() {
     if (!urlInput.trim()) return;
     const url = urlInput.startsWith('http') ? urlInput : `https://${urlInput}`;
     setLoading(true);
-    const res = await openBrowserTab(url);
+    const res = await openInDesktopBrowser(url);
     setLoading(false);
     if (res.ok) {
       setUrlInput('');
-      fetchTabs();
     } else {
       Alert.alert('Error', res.error);
     }
@@ -103,7 +103,13 @@ export default function BrowserScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.screen}>
         <View style={styles.header}>
+          {onBack && (
+            <Pressable onPress={onBack} style={styles.backBtn}>
+              <Feather name="arrow-left" size={20} color={colors.text} />
+            </Pressable>
+          )}
           <Text style={styles.headerTitle}>Browser</Text>
+          {onBack && <View style={{ width: 36 }} />}
         </View>
 
         <View style={styles.urlBar}>

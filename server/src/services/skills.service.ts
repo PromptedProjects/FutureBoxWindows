@@ -1,4 +1,8 @@
 import type { ActionTier } from './action.service.js';
+import type { ToolDefinition } from '../providers/provider.interface.js';
+
+// Re-export for consumers
+export type { ToolDefinition };
 
 export interface SkillAction {
   name: string;
@@ -13,19 +17,6 @@ export interface Skill {
   description: string;
   enabled: boolean;
   actions: SkillAction[];
-}
-
-export interface ToolDefinition {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, { type: string; description: string }>;
-      required: string[];
-    };
-  };
 }
 
 // Registry of all skills
@@ -93,7 +84,7 @@ export function getToolDefinitions(): ToolDefinition[] {
       tools.push({
         type: 'function',
         function: {
-          name: `${skill.id}.${action.name}`,
+          name: `${skill.id}__${action.name}`,
           description: `[${skill.name}] ${action.description}`,
           parameters: {
             type: 'object',
@@ -106,6 +97,24 @@ export function getToolDefinitions(): ToolDefinition[] {
   }
 
   return tools;
+}
+
+/** Parse an API tool name like "clipboard__read" back to [skillId, actionName] */
+export function parseToolName(toolName: string): [string, string] | null {
+  const idx = toolName.indexOf('__');
+  if (idx === -1) return null;
+  return [toolName.slice(0, idx), toolName.slice(idx + 2)];
+}
+
+/** Look up the tier for a tool call by its API function name (e.g. "clipboard__read") */
+export function getActionTier(toolName: string): ActionTier | null {
+  const parsed = parseToolName(toolName);
+  if (!parsed) return null;
+  const [skillId, actionName] = parsed;
+  const skill = skills.get(skillId);
+  if (!skill) return null;
+  const action = skill.actions.find((a) => a.name === actionName);
+  return action?.tier ?? null;
 }
 
 // Action handler registry
@@ -417,6 +426,42 @@ export function registerBuiltinSkills(): void {
     ],
   });
 
+  // System skill — run shell commands
+  registerSkill({
+    id: 'system',
+    name: 'System Shell',
+    description: 'Execute shell commands on the host machine',
+    enabled: true,
+    actions: [
+      {
+        name: 'run',
+        description: 'Execute a shell command and return its output',
+        tier: 'red',
+        parameters: {
+          command: { type: 'string', description: 'Shell command to execute', required: true },
+        },
+      },
+    ],
+  });
+
+  // Browser open skill — open URL in default browser
+  registerSkill({
+    id: 'browser_open',
+    name: 'Open in Browser',
+    description: 'Open a URL in the default desktop browser',
+    enabled: true,
+    actions: [
+      {
+        name: 'open',
+        description: 'Open a URL in the default desktop browser',
+        tier: 'green',
+        parameters: {
+          url: { type: 'string', description: 'URL to open', required: true },
+        },
+      },
+    ],
+  });
+
   // Register action handlers that connect skills to real services
   registerBuiltinHandlers();
 }
@@ -481,5 +526,21 @@ async function registerBuiltinHandlers(): Promise<void> {
   registerActionHandler('notification.send', async (p) => {
     sendDesktopNotification({ title: p.title as string, message: p.message as string });
     return { sent: true };
+  });
+
+  // System shell handler
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execAsync = promisify(exec);
+  registerActionHandler('system.run', async (p) => {
+    const { stdout, stderr } = await execAsync(p.command as string, { timeout: 30000, maxBuffer: 1024 * 1024 });
+    return { stdout: stdout.trim(), stderr: stderr.trim() };
+  });
+
+  // Browser open handler
+  const { openInDefaultBrowser } = await import('./browser.service.js');
+  registerActionHandler('browser_open.open', async (p) => {
+    openInDefaultBrowser(p.url as string);
+    return { opened: true, url: p.url };
   });
 }

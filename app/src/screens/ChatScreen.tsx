@@ -6,6 +6,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import MessageBubble from '../components/MessageBubble';
 import StreamingText from '../components/StreamingText';
 import TypingIndicator from '../components/TypingIndicator';
+import ToolStatusBar from '../components/ToolStatusBar';
 import ChatInput from '../components/ChatInput';
 import CallBar from '../components/CallBar';
 import ConversationListScreen from './ConversationListScreen';
@@ -21,6 +22,7 @@ export default function ChatScreen() {
     messages,
     streamingContent,
     isStreaming,
+    toolActivities,
     sendMessage,
     cancelStream,
     loadConversation,
@@ -192,9 +194,12 @@ export default function ChatScreen() {
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             ListHeaderComponent={
               <>
+                {toolActivities.length > 0 && (
+                  <ToolStatusBar activities={toolActivities} />
+                )}
                 {streamingContent ? (
                   <StreamingText content={streamingContent} />
-                ) : isStreaming ? (
+                ) : isStreaming && toolActivities.length === 0 ? (
                   <TypingIndicator />
                 ) : null}
               </>

@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { validateSession } from '../services/auth.service.js';
 import { wsManager } from '../ws/ws-manager.js';
-import { createWSMessage, type WSMessage, type ChatSendPayload, type ActionDecisionPayload, type ShellExecPayload, type ShellInputPayload, type ShellKillPayload } from '../ws/ws-protocol.js';
+import { createWSMessage, type WSMessage, type ChatSendPayload, type ActionDecisionPayload, type ShellExecPayload, type ShellInputPayload, type ShellKillPayload, type ShellResizePayload } from '../ws/ws-protocol.js';
 import { handleChatSend, handleChatCancel } from '../ws/handlers/chat.handler.js';
-import { handleShellExec, handleShellInput, handleShellKill, cleanupShells } from '../ws/handlers/shell.handler.js';
+import { handleShellExec, handleShellInput, handleShellKill, handleShellResize, cleanupShells } from '../ws/handlers/shell.handler.js';
 import { handleApprove, handleDeny } from '../services/action.service.js';
 import { handleScreenCapture } from '../ws/handlers/screen.handler.js';
 
@@ -68,6 +68,9 @@ export async function wsRoutes(app: FastifyInstance): Promise<void> {
           break;
         case 'shell.kill':
           handleShellKill(sessionId, msg.payload as ShellKillPayload);
+          break;
+        case 'shell.resize':
+          handleShellResize(sessionId, msg.payload as ShellResizePayload);
           break;
         case 'screen.capture':
           handleScreenCapture(sessionId, msg.id, msg.payload as { display_id?: number });

@@ -3,6 +3,7 @@ import {
   type LLMProvider,
   type ChatMessage,
   type ChatResponse,
+  type ChatOptions,
   type ModelInfo,
 } from './provider.interface.js';
 
@@ -26,7 +27,7 @@ export class GeminiProvider implements LLMProvider {
     ];
   }
 
-  async chat(model: string, messages: ChatMessage[]): Promise<ChatResponse> {
+  async chat(model: string, messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
     const systemMsg = messages.find((m) => m.role === 'system');
     const chatMsgs = messages.filter((m) => m.role !== 'system');
 
@@ -59,7 +60,7 @@ export class GeminiProvider implements LLMProvider {
     return { content, model, tokens_used: tokensUsed };
   }
 
-  async *chatStream(model: string, messages: ChatMessage[]): AsyncGenerator<string, ChatResponse> {
+  async *chatStream(model: string, messages: ChatMessage[], _options?: ChatOptions): AsyncGenerator<string, ChatResponse> {
     const systemMsg = messages.find((m) => m.role === 'system');
     const chatMsgs = messages.filter((m) => m.role !== 'system');
 

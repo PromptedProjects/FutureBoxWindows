@@ -4,6 +4,7 @@ import {
   listTabs, openTab, closeTab, navigateTab,
   screenshotPage, getPageContent, clickElement,
   typeInElement, evaluateScript, extractLinks, extractText,
+  openInDefaultBrowser,
 } from '../services/browser.service.js';
 
 const openTabBody = z.object({ url: z.string().url() });
@@ -14,6 +15,21 @@ const evalBody = z.object({ script: z.string().min(1) });
 const textBody = z.object({ selector: z.string().optional() });
 
 export async function browserRoutes(app: FastifyInstance): Promise<void> {
+  /** Open URL in default system browser (green) */
+  app.post('/browser/open', async (request, reply) => {
+    const body = openTabBody.safeParse(request.body);
+    if (!body.success) {
+      reply.code(400).send({ ok: false, error: 'url is required' });
+      return;
+    }
+    try {
+      openInDefaultBrowser(body.data.url);
+      return { ok: true, data: { opened: true, url: body.data.url } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Failed to open URL' };
+    }
+  });
+
   /** List open tabs (green) */
   app.get('/browser/tabs', async () => {
     try {

@@ -14,6 +14,8 @@ export type WSMessageType =
   | 'ping'
   // Server → Client
   | 'chat.token'
+  | 'chat.tool_start'
+  | 'chat.tool_result'
   | 'chat.done'
   | 'chat.error'
   | 'shell.output'
@@ -61,6 +63,22 @@ export interface ChatDonePayload {
 export interface ChatErrorPayload {
   conversation_id?: string;
   error: string;
+}
+
+export interface ChatToolStartPayload {
+  conversation_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ChatToolResultPayload {
+  conversation_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 // --- Shell payloads ---

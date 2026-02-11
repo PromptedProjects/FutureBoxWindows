@@ -3,7 +3,13 @@ import { uid } from '../utils/uid';
 import { useChatStore } from '../stores/chat.store';
 import { wsManager } from '../services/ws';
 import { getConversationMessages } from '../services/api';
-import type { ChatTokenPayload, ChatDonePayload, ChatErrorPayload } from '../types/ws';
+import type {
+  ChatTokenPayload,
+  ChatDonePayload,
+  ChatErrorPayload,
+  ChatToolStartPayload,
+  ChatToolResultPayload,
+} from '../types/ws';
 import type { Message } from '../types/models';
 
 export function useChat() {
@@ -12,6 +18,7 @@ export function useChat() {
     messages,
     streamingContent,
     isStreaming,
+    toolActivities,
     setConversationId,
     setMessages,
     addMessage,
@@ -19,6 +26,8 @@ export function useChat() {
     finishStream,
     setStreaming,
     clearStream,
+    addToolStart,
+    updateToolResult,
   } = useChatStore();
 
   // Subscribe to WS events
@@ -29,6 +38,12 @@ export function useChat() {
           setConversationId(payload.conversation_id);
         }
         appendToken(payload.token);
+      }),
+      wsManager.on<ChatToolStartPayload>('chat.tool_start', (payload) => {
+        addToolStart(payload.tool_call_id, payload.tool_name);
+      }),
+      wsManager.on<ChatToolResultPayload>('chat.tool_result', (payload) => {
+        updateToolResult(payload.tool_call_id, payload.success, payload.error);
       }),
       wsManager.on<ChatDonePayload>('chat.done', (payload) => {
         setConversationId(payload.conversation_id);
@@ -49,7 +64,7 @@ export function useChat() {
     ];
 
     return () => unsubs.forEach((unsub) => unsub());
-  }, [setConversationId, appendToken, finishStream, clearStream]);
+  }, [setConversationId, appendToken, finishStream, clearStream, addToolStart, updateToolResult]);
 
   const sendMessage = useCallback(
     (text: string, images?: string[]) => {
@@ -95,6 +110,7 @@ export function useChat() {
     messages,
     streamingContent,
     isStreaming,
+    toolActivities,
     sendMessage,
     cancelStream,
     loadConversation,

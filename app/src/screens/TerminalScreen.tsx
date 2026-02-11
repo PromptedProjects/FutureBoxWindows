@@ -1,190 +1,206 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { useShellTabs, type TermLine } from '../hooks/useShell';
+import { XTermView, type XTermHandle } from '../components/XTermView';
+import { wsManager } from '../services/ws';
+import { uid } from '../utils/uid';
 import { colors } from '../theme/tokens';
+import type { ShellOutputPayload, ShellExitPayload } from '../types/ws';
 
-const LINE_COLORS: Record<TermLine['type'], string> = {
-  stdout: '#e2e8f0',
-  stderr: colors.error,
-  input: colors.accent,
-  system: colors.textMuted,
-};
-
-function TermLineRow({ line }: { line: TermLine }) {
-  return (
-    <Text selectable style={[styles.lineText, { color: LINE_COLORS[line.type] }]}>
-      {line.text}
-    </Text>
-  );
+interface TermTab {
+  id: string;
+  title: string;
+  spawned: boolean;
 }
 
 export default function TerminalScreen() {
-  const {
-    tabs,
-    activeTab,
-    activeTabId,
-    setActiveTabId,
-    exec,
-    kill,
-    sendInput,
-    clearTab,
-    addTab,
-    closeTab,
-  } = useShellTabs();
+  const [tabs, setTabs] = useState<TermTab[]>(() => [
+    { id: uid(8), title: 'Shell 1', spawned: false },
+  ]);
+  const [activeTabId, setActiveTabId] = useState(tabs[0].id);
+  const tabCounter = useRef(1);
+  const xtermRefs = useRef<Map<string, XTermHandle>>(new Map());
 
-  const [input, setInput] = useState('');
-  const listRef = useRef<FlatList<TermLine>>(null);
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
-  // Auto-scroll to bottom when lines change
+  // Subscribe to WS shell events and pipe to xterm
   useEffect(() => {
-    if (activeTab.lines.length > 0) {
-      setTimeout(() => {
-        listRef.current?.scrollToEnd({ animated: true });
-      }, 50);
-    }
-  }, [activeTab.lines.length]);
+    const unsubs = [
+      wsManager.on<ShellOutputPayload>('shell.output', (payload) => {
+        const xterm = xtermRefs.current.get(payload.tab_id);
+        xterm?.write(payload.data);
+      }),
+      wsManager.on<ShellExitPayload>('shell.exit', (payload) => {
+        const xterm = xtermRefs.current.get(payload.tab_id);
+        xterm?.write(`\r\n[shell exited: ${payload.code ?? payload.signal ?? '?'}]\r\n`);
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === payload.tab_id ? { ...t, spawned: false } : t,
+          ),
+        );
+      }),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, []);
 
-  function handleSubmit() {
-    const cmd = input.trim();
-    if (!cmd) return;
-    if (activeTab.running) {
-      sendInput(activeTabId, cmd + '\n');
-    } else {
-      exec(activeTabId, cmd);
+  // Spawn PTY when a tab becomes active and hasn't spawned yet
+  useEffect(() => {
+    if (!activeTab.spawned) {
+      wsManager.shellExec(activeTab.id, '');
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id ? { ...t, spawned: true } : t,
+        ),
+      );
     }
-    setInput('');
-  }
+  }, [activeTab.id, activeTab.spawned]);
+
+  const handleData = useCallback(
+    (data: string) => {
+      wsManager.shellInput(activeTabId, data);
+    },
+    [activeTabId],
+  );
+
+  const handleResize = useCallback(
+    (cols: number, rows: number) => {
+      wsManager.shellResize(activeTabId, cols, rows);
+    },
+    [activeTabId],
+  );
+
+  const setXtermRef = useCallback(
+    (handle: XTermHandle | null) => {
+      if (handle) {
+        xtermRefs.current.set(activeTabId, handle);
+      }
+    },
+    [activeTabId],
+  );
+
+  const addTab = useCallback(() => {
+    tabCounter.current++;
+    const newTab: TermTab = {
+      id: uid(8),
+      title: `Shell ${tabCounter.current}`,
+      spawned: false,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, []);
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      wsManager.shellKill(tabId);
+      xtermRefs.current.delete(tabId);
+
+      setTabs((prev) => {
+        const filtered = prev.filter((t) => t.id !== tabId);
+        if (filtered.length === 0) {
+          tabCounter.current++;
+          return [{ id: uid(8), title: `Shell ${tabCounter.current}`, spawned: false }];
+        }
+        return filtered;
+      });
+
+      setActiveTabId((current) => {
+        if (current === tabId) {
+          const idx = tabs.findIndex((t) => t.id === tabId);
+          const remaining = tabs.filter((t) => t.id !== tabId);
+          if (remaining.length === 0) return current;
+          return remaining[Math.min(idx, remaining.length - 1)].id;
+        }
+        return current;
+      });
+    },
+    [tabs],
+  );
+
+  const killActive = useCallback(() => {
+    wsManager.shellKill(activeTabId);
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, spawned: false } : t,
+      ),
+    );
+  }, [activeTabId]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
-        {/* Tab bar */}
-        <View style={styles.tabBar}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabScroll}
-          >
-            {tabs.map((tab) => (
-              <Pressable
-                key={tab.id}
-                onPress={() => setActiveTabId(tab.id)}
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabScroll}
+        >
+          {tabs.map((tab) => (
+            <Pressable
+              key={tab.id}
+              onPress={() => setActiveTabId(tab.id)}
+              style={[styles.tab, tab.id === activeTabId && styles.tabActive]}
+            >
+              {tab.spawned && <View style={styles.runningDot} />}
+              <Text
                 style={[
-                  styles.tab,
-                  tab.id === activeTabId && styles.tabActive,
+                  styles.tabText,
+                  tab.id === activeTabId && styles.tabTextActive,
                 ]}
+                numberOfLines={1}
               >
-                {tab.running && (
-                  <View style={styles.runningDot} />
-                )}
-                <Text
-                  style={[
-                    styles.tabText,
-                    tab.id === activeTabId && styles.tabTextActive,
-                  ]}
-                  numberOfLines={1}
+                {tab.title}
+              </Text>
+              {tabs.length > 1 && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  hitSlop={8}
+                  style={styles.tabClose}
                 >
-                  {tab.title}
-                </Text>
-                {tabs.length > 1 && (
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    hitSlop={8}
-                    style={styles.tabClose}
-                  >
-                    <Feather name="x" size={12} color={colors.textMuted} />
-                  </Pressable>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          {/* New tab button */}
-          <Pressable onPress={addTab} style={styles.addTabBtn}>
-            <Feather name="plus" size={18} color={colors.textMuted} />
-          </Pressable>
-
-          {/* Actions */}
-          <View style={styles.headerActions}>
-            {activeTab.running && (
-              <Pressable onPress={() => kill(activeTabId)} style={styles.headerBtn}>
-                <Feather name="square" size={14} color={colors.error} />
-              </Pressable>
-            )}
-            <Pressable onPress={() => clearTab(activeTabId)} style={styles.headerBtn}>
-              <Feather name="trash-2" size={14} color={colors.textMuted} />
+                  <Feather name="x" size={12} color={colors.textMuted} />
+                </Pressable>
+              )}
             </Pressable>
-          </View>
-        </View>
+          ))}
+        </ScrollView>
 
-        {/* Output */}
-        <FlatList
-          ref={listRef}
-          data={activeTab.lines}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => <TermLineRow line={item} />}
-          style={styles.output}
-          contentContainerStyle={styles.outputContent}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              Type a command below to run it on your FutureBox.
-            </Text>
-          }
-        />
+        <Pressable onPress={addTab} style={styles.addTabBtn}>
+          <Feather name="plus" size={18} color={colors.textMuted} />
+        </Pressable>
 
-        {/* Input */}
-        <View style={styles.inputRow}>
-          <Text style={styles.prompt}>$</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="command..."
-            placeholderTextColor={colors.textMuted}
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={handleSubmit}
-            returnKeyType="send"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={true}
-          />
-          <Pressable
-            onPress={activeTab.running ? () => kill(activeTabId) : handleSubmit}
-            style={styles.sendBtn}
-          >
-            <Feather
-              name={activeTab.running ? 'square' : 'play'}
-              size={18}
-              color={activeTab.running ? colors.error : colors.accent}
-            />
-          </Pressable>
+        <View style={styles.headerActions}>
+          {activeTab.spawned && (
+            <Pressable onPress={killActive} style={styles.headerBtn}>
+              <Feather name="square" size={14} color={colors.error} />
+            </Pressable>
+          )}
         </View>
-      </KeyboardAvoidingView>
+      </View>
+
+      {/* xterm.js terminal — key forces re-mount per tab */}
+      <XTermView
+        key={activeTabId}
+        ref={setXtermRef}
+        onData={handleData}
+        onResize={handleResize}
+        fontSize={13}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#0c0c0c' },
-  flex: { flex: 1 },
   tabBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -239,51 +255,5 @@ const styles = StyleSheet.create({
   },
   headerBtn: {
     padding: 4,
-  },
-  output: {
-    flex: 1,
-    backgroundColor: '#0c0c0c',
-  },
-  outputContent: {
-    padding: 12,
-    paddingBottom: 8,
-  },
-  lineText: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  emptyText: {
-    color: colors.textMuted,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 13,
-    textAlign: 'center',
-    paddingTop: 40,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#141414',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
-  },
-  prompt: {
-    color: colors.accent,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  input: {
-    flex: 1,
-    color: colors.text,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 14,
-    paddingVertical: 6,
-  },
-  sendBtn: {
-    padding: 6,
   },
 });

@@ -7,15 +7,44 @@ export enum Capability {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   images?: string[]; // base64 for vision
+  tool_calls?: ToolCall[];
+  tool_call_id?: string; // for role: 'tool' messages
+}
+
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+export interface ChatOptions {
+  tools?: ToolDefinition[];
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: 'object';
+      properties: Record<string, { type: string; description: string }>;
+      required: string[];
+    };
+  };
 }
 
 export interface ChatResponse {
   content: string;
   model: string;
   tokens_used?: number;
+  tool_calls?: ToolCall[];
 }
 
 export interface ModelInfo {
@@ -37,10 +66,10 @@ export interface LLMProvider {
   listModels(): Promise<ModelInfo[]>;
 
   /** Single-shot chat (waits for full response) */
-  chat(model: string, messages: ChatMessage[]): Promise<ChatResponse>;
+  chat(model: string, messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse>;
 
   /** Streaming chat — yields token chunks */
-  chatStream(model: string, messages: ChatMessage[]): AsyncGenerator<string, ChatResponse>;
+  chatStream(model: string, messages: ChatMessage[], options?: ChatOptions): AsyncGenerator<string, ChatResponse>;
 }
 
 /** Provider that can process images */

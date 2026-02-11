@@ -137,6 +137,10 @@ class WebSocketManager {
     this.send('shell.kill', { tab_id: tabId });
   }
 
+  shellResize(tabId: string, cols: number, rows: number) {
+    this.send('shell.resize', { tab_id: tabId, cols, rows });
+  }
+
   approveAction(actionId: string) {
     const payload: ActionDecisionPayload = { action_id: actionId };
     this.send('action.approve', payload);

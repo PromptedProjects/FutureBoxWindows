@@ -353,6 +353,13 @@ export function openBrowserTab(url: string) {
   });
 }
 
+export function openInDesktopBrowser(url: string) {
+  return request<{ opened: boolean; url: string }>('/browser/open', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
 export function closeBrowserTab(id: string) {
   return request<unknown>(`/browser/tabs/${id}`, { method: 'DELETE' });
 }
